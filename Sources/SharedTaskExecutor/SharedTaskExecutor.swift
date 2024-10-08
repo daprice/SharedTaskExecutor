@@ -143,23 +143,26 @@ public actor SharedTaskExecutor<RequestParameters: Hashable & Sendable, ChildTas
 		}
 	}
 	
-	// Remove the subscriber with the given subscription ID and cancel its task. If ``gracePeriod`` is set, wait that long and only cancel the task if no more subscribers have subscribed during that time.
+	/// Remove the subscriber with the given subscription ID and cancel its task. If this was the last subscriber and ``gracePeriod`` is set, wait that long and only cancel the task if no more subscribers have subscribed during that time.
 	private func unsubscribe(_ subscriptionID: UUID, request: RequestParameters) async {
 		subscribers[request]?.removeAll(where: { $0.subscriptionID == subscriptionID })
 		
-		do {
-			// Wait to cancel the task being performed until the grace period is finished.
-			if let gracePeriod {
-				try await Task.sleep(for: gracePeriod)
+		// If there are no more subscribers to this request, start the grace period
+		if subscribers[request]?.isEmpty == true {
+			do {
+				// Wait to cancel the task being performed until the grace period is finished.
+				if let gracePeriod {
+					try await Task.sleep(for: gracePeriod)
+				}
+				
+				// If there are still no more subscribers for this request, cancel the task
+				if subscribers[request]?.isEmpty == true,
+				   let ongoingTask = inProgressTasks.removeValue(forKey: request) {
+					ongoingTask.cancel()
+				}
+			} catch {
+				return
 			}
-			
-			// If there are no more subscribers for this request, cancel the task
-			if subscribers[request]?.isEmpty == true,
-			   let ongoingTask = inProgressTasks.removeValue(forKey: request) {
-				ongoingTask.cancel()
-			}
-		} catch {
-			return
 		}
 	}
 }
